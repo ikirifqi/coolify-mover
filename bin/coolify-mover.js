@@ -7,11 +7,12 @@ const listResources = require('../src/commands/list');
 const batchMigrate = require('../src/commands/batch');
 const { interactiveMove } = require('../src/commands/interactive');
 const { initConfig } = require('../src/utils/config');
+const { version } = require('../package.json');
 
 program
   .name('coolify-mover')
   .description('CLI tool to migrate resources between Coolify servers')
-  .version('1.2.0');
+  .version(version);
 
 // Init command - create config file
 program
