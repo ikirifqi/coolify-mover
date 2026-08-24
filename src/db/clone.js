@@ -152,6 +152,10 @@ class ResourceCloner {
     return result.rows.map(col => col.column_name);
   }
 
+  quoteIdentifier(identifier) {
+    return `"${identifier.replace(/"/g, '""')}"`;
+  }
+
   // Clone service applications
   async cloneServiceApplications(sourceServiceId, newServiceId, newServiceUuid) {
     const apps = await this.db.query(
@@ -316,6 +320,28 @@ class ResourceCloner {
     }
 
     return clonedVolumes;
+  }
+
+  async cloneApplicationSettings(sourceId, targetId) {
+    const columns = await this.getTableColumns('application_settings');
+    if (columns.length === 0) {
+      return;
+    }
+
+    const settingColumns = columns
+      .filter(column => !['id', 'application_id', 'created_at', 'updated_at'].includes(column))
+      .map(column => this.quoteIdentifier(column))
+      .join(', ');
+    const sourceColumns = settingColumns ? `, ${settingColumns}` : '';
+
+    await this.db.query(`
+      INSERT INTO application_settings (
+        application_id${sourceColumns}, created_at, updated_at
+      )
+      SELECT $1${sourceColumns}, NOW(), NOW()
+      FROM application_settings
+      WHERE application_id = $2
+    `, [targetId, sourceId]);
   }
 
   // Clone standalone PostgreSQL
@@ -886,6 +912,8 @@ class ResourceCloner {
 
     const newApp = insertResult.rows[0];
     logger.success(`  Created new Application: ID ${newApp.id}`);
+
+    await this.cloneApplicationSettings(source.id, newApp.id);
 
     // Clone environment variables
     const envCount = await this.cloneEnvironmentVariables(source.id, newApp.id, 'App\\Models\\Application');
