@@ -140,6 +140,18 @@ class ResourceCloner {
     return result.rowCount;
   }
 
+  async getTableColumns(tableName) {
+    const result = await this.db.query(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = $1
+      ORDER BY ordinal_position
+    `, [tableName]);
+
+    return result.rows.map(col => col.column_name);
+  }
+
   // Clone service applications
   async cloneServiceApplications(sourceServiceId, newServiceId, newServiceUuid) {
     const apps = await this.db.query(
@@ -271,19 +283,30 @@ class ResourceCloner {
       `SELECT * FROM local_persistent_volumes WHERE resource_id = $1 AND resource_type = $2`,
       [sourceId, resourceType]
     );
+    const volumeColumns = await this.getTableColumns('local_persistent_volumes');
+    const hasVolumeUuid = volumeColumns.includes('uuid');
 
     const clonedVolumes = [];
     for (const vol of volumes.rows) {
       // Replace old UUID with new UUID in volume name
       const newVolumeName = vol.name.replace(oldUuid, newUuid);
-
-      await this.db.query(`
-        INSERT INTO local_persistent_volumes (
-          name, mount_path, host_path, container_id,
-          resource_type, resource_id, created_at, updated_at
-        )
-        VALUES ($1, $2, $3, NULL, $4, $5, NOW(), NOW())
-      `, [newVolumeName, vol.mount_path, vol.host_path, resourceType, targetId]);
+      if (hasVolumeUuid) {
+        await this.db.query(`
+          INSERT INTO local_persistent_volumes (
+            uuid, name, mount_path, host_path, container_id,
+            resource_type, resource_id, created_at, updated_at
+          )
+          VALUES ($1, $2, $3, $4, NULL, $5, $6, NOW(), NOW())
+        `, [this.db.generateUuid(), newVolumeName, vol.mount_path, vol.host_path, resourceType, targetId]);
+      } else {
+        await this.db.query(`
+          INSERT INTO local_persistent_volumes (
+            name, mount_path, host_path, container_id,
+            resource_type, resource_id, created_at, updated_at
+          )
+          VALUES ($1, $2, $3, NULL, $4, $5, NOW(), NOW())
+        `, [newVolumeName, vol.mount_path, vol.host_path, resourceType, targetId]);
+      }
 
       clonedVolumes.push({
         sourceName: vol.name,
